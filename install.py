@@ -5,7 +5,7 @@ import shutil
 import winreg
 
 # Configuration
-REPO_URL = "https://github.com/yourusername/tuelang/raw/main/src/interpreter.py"
+REPO_URL = "https://github.com/ssloke420/tuelang/raw/main/src/interpreter.py"
 INSTALL_DIR = "C:\\tuelang"
 INTERPRETER_FILE = "interpreter.py"
 
