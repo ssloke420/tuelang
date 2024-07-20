@@ -24,8 +24,20 @@ You can clone the repository using Git:
 git clone https://github.com/yourusername/tuelang.git
 cd tuelang
 ```
-### Adding Tuelang to PATH
-Add the installation directory of interpreter.py to your systems path variable for easy access. Make sure the folder where interpreter.py is installed is named "tuelang".
+### Downloading
+
+Download the install.py file.
+Run the following command in the terminal
+
 ```bash
-tuelang main.tuelang
+python install.py
+```
+
+This will download the interpreter and add the tuelang command to PATH.
+
+### Running Programs
+Save your tuelang code in a .tuelang file.
+Run: 
+```bash
+tuelang your_file.tuelang
 ```
