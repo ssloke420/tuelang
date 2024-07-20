@@ -1,12 +1,11 @@
 # Tuelang
 
-Tuelang is a custom programming language designed to be simple and flexible, with support for basic constructs like functions, conditionals, and loops. This repository contains the Tuelang interpreter and setup instructions.
+Tuelang is a custom programming language designed to be good for processing input.
 
 ## Features
 
-- Function definitions and calls
 - Conditional statements (`if`, `else`, `elseif`)
-- Loops (`while`)
+- Input (`cue`)
 - Basic arithmetic and logical operators
 - Variable handling and simple data types
 
