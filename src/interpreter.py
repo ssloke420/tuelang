@@ -337,7 +337,7 @@ class Parser:
         elif self.current_token.type == TokenType.ECHO:
             return self.echo_statement()
         elif self.current_token.type == TokenType.WHILE:
-            return self.while_statement
+            return self.while_statement()
         else:
             self.error(f"Unexpected token: {self.current_token.type}")
     
@@ -679,7 +679,7 @@ class Interpreter:
         for statement in func.body:
             result = self.visit(statement)
             if isinstance(statement, Return):
-                result = self.visit(statement.expr)
+                result = self.visit(statement.value)
                 break
         
         self.symbol_table = old_symbol_table
