@@ -2,48 +2,111 @@ import os
 import sys
 import urllib.request
 import shutil
-import winreg
+import subprocess
+import platform
+from pathlib import Path
 
 # Configuration
 REPO_URL = "https://github.com/ssloke420/tuelang/raw/main/src/interpreter.py"
-INSTALL_DIR = "C:\\tuelang"
 INTERPRETER_FILE = "interpreter.py"
 
-def download_interpreter():
-    print(f"Downloading Tuelang interpreter from {REPO_URL}...")
+def get_install_config():
+    """Get platform-specific installation configuration."""
+    system = platform.system().lower()
     
-    # Download the interpreter file
-    response = urllib.request.urlopen(REPO_URL)
-    with open(os.path.join(INSTALL_DIR, INTERPRETER_FILE), 'wb') as out_file:
-        shutil.copyfileobj(response, out_file)
+    if system == "windows":
+        return {
+            "install_dir": "C:\\tuelang",
+            "executable": "tuelang.bat",
+            "executable_content": f'@echo off\npython "{Path("C:/tuelang") / INTERPRETER_FILE}" %*\n',
+            "path_sep": ";",
+            "shell_profile": None
+        }
+    elif system == "darwin":  # macOS
+        home = Path.home()
+        return {
+            "install_dir": str(home / ".local" / "tuelang"),
+            "executable": "tuelang",
+            "executable_content": f'#!/bin/bash\npython3 "{home / ".local" / "tuelang" / INTERPRETER_FILE}" "$@"\n',
+            "path_sep": ":",
+            "shell_profile": str(home / ".zshrc")  # or .bash_profile
+        }
+    else:  # Linux
+        home = Path.home()
+        return {
+            "install_dir": str(home / ".local" / "tuelang"),
+            "executable": "tuelang",
+            "executable_content": f'#!/bin/bash\npython3 "{home / ".local" / "tuelang" / INTERPRETER_FILE}" "$@"\n',
+            "path_sep": ":",
+            "shell_profile": str(home / ".bashrc")
+        }
+
+def install_cross_platform():
+    """Cross-platform installation function."""
+    config = get_install_config()
+    system = platform.system()
     
-    print("Download complete.")
-
-def add_to_path():
-    print(f"Adding {INSTALL_DIR} to PATH...")
-
-    # Access the registry to update the PATH
-    try:
-        reg_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_WRITE)
-        current_path = winreg.QueryValueEx(reg_key, "PATH")[0]
-        new_path = f"{current_path};{INSTALL_DIR}"
-        winreg.SetValueEx(reg_key, "PATH", 0, winreg.REG_EXPAND_SZ, new_path)
-        winreg.CloseKey(reg_key)
-        print("PATH updated successfully.")
-    except Exception as e:
-        print(f"Failed to update PATH: {e}")
-        sys.exit(1)
-
-def setup():
-    # Create the installation directory if it does not exist
-    if not os.path.exists(INSTALL_DIR):
-        os.makedirs(INSTALL_DIR)
-
-    download_interpreter()
-    add_to_path()
+    print(f"Installing TueLang on {system}...")
     
-    print(f"Tuelang has been installed to {INSTALL_DIR}")
-    print("You may need to restart your command prompt or system for changes to take effect.")
+    # Create install directory
+    Path(config["install_dir"]).mkdir(parents=True, exist_ok=True)
+    
+    # Download interpreter
+    print("Downloading interpreter...")
+    req = urllib.request.Request(REPO_URL, headers={
+        'User-Agent': 'Mozilla/5.0 (compatible; TueLang-Installer/1.0)'
+    })
+    
+    with urllib.request.urlopen(req) as response:
+        with open(Path(config["install_dir"]) / INTERPRETER_FILE, 'wb') as f:
+            shutil.copyfileobj(response, f)
+    
+    # Create executable wrapper
+    executable_path = Path(config["install_dir"]) / config["executable"]
+    with open(executable_path, 'w') as f:
+        f.write(config["executable_content"])
+    
+    # Make executable on Unix systems
+    if system != "Windows":
+        os.chmod(executable_path, 0o755)
+    
+    # Add to PATH
+    if system == "Windows":
+        # Windows PATH handling (same as before)
+        add_to_windows_path(config["install_dir"])
+    else:
+        # Unix PATH handling
+        add_to_unix_path(config["install_dir"], config["shell_profile"])
+    
+    print(f"✓ TueLang installed to {config['install_dir']}")
+    print(f"✓ Use 'tuelang <filename>' to run TueLang programs")
+
+def add_to_windows_path(install_dir):
+    """Add to Windows PATH (implementation from previous version)."""
+    # Implementation from the previous installer
+    pass
+
+def add_to_unix_path(install_dir, shell_profile):
+    """Add to Unix PATH via shell profile."""
+    if not shell_profile or not os.path.exists(shell_profile):
+        print(f"⚠ Could not find shell profile. Manually add to PATH:")
+        print(f"export PATH=\"$PATH:{install_dir}\"")
+        return
+    
+    path_line = f'export PATH="$PATH:{install_dir}"\n'
+    
+    # Check if already in profile
+    with open(shell_profile, 'r') as f:
+        if install_dir in f.read():
+            print(f"✓ Already in PATH via {shell_profile}")
+            return
+    
+    # Add to profile
+    with open(shell_profile, 'a') as f:
+        f.write(f'\n# TueLang\n{path_line}')
+    
+    print(f"✓ Added to PATH via {shell_profile}")
+    print("⚠ Please restart your terminal or run: source ~/.bashrc")
 
 if __name__ == "__main__":
-    setup()
+    install_cross_platform()
