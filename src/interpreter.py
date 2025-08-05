@@ -27,22 +27,35 @@ class TokenType(Enum):
     CUE = 'CUE'
     RETURN = 'RETURN'
     WHILE = 'WHILE'
+    FOR = 'FOR'
+    BREAK = 'BREAK'
+    CONTINUE = 'CONTINUE'
 
 class Token:
-    def __init__(self, type, value):
+    def __init__(self, type, value, line=0, column=0):
         self.type = type
         self.value = value
+        self.line = line
+        self.column = column
 
     def __repr__(self):
-        return f"Token({self.type}, {repr(self.value)})"
+        return f"Token({self.type}, {repr(self.value)}, {self.line}:{self.column})"
 
 class Lexer:
     def __init__(self, text):
         self.text = text
         self.pos = 0
-        self.current_char = self.text[self.pos]
+        self.line = 1
+        self.column = 1
+        self.current_char = self.text[self.pos] if self.pos < len(self.text) else None
 
     def advance(self):
+        if self.current_char == '\n':
+            self.line += 1
+            self.column = 1
+        else:
+            self.column += 1
+        
         self.pos += 1
         if self.pos < len(self.text):
             self.current_char = self.text[self.pos]
@@ -59,42 +72,61 @@ class Lexer:
 
     def string(self):
         result = ''
+        line, column = self.line, self.column
         self.advance()  # Skip the opening quote
         while self.current_char and self.current_char != '"':
-            result += self.current_char
+            if self.current_char == '\\':  # Handle escape sequences
+                self.advance()
+                if self.current_char == 'n':
+                    result += '\n'
+                elif self.current_char == 't':
+                    result += '\t'
+                elif self.current_char == 'r':
+                    result += '\r'
+                elif self.current_char == '\\':
+                    result += '\\'
+                elif self.current_char == '"':
+                    result += '"'
+                else:
+                    result += self.current_char
+            else:
+                result += self.current_char
             self.advance()
+        
+        if self.current_char != '"':
+            raise Exception(f"Unterminated string at line {line}, column {column}")
+        
         self.advance()  # Skip the closing quote
-        return Token(TokenType.STRING, result)
+        return Token(TokenType.STRING, result, line, column)
 
     def identifier_token(self):
         result = ''
+        line, column = self.line, self.column
         while self.current_char and (self.current_char.isalnum() or self.current_char == '_'):
             result += self.current_char
             self.advance()
 
         # Map the identifier to the appropriate token type
-        token_type = TokenType.IDENTIFIER
-        if result.lower() == 'cue':
-            token_type = TokenType.CUE
-        elif result.lower() == 'echo':
-            token_type = TokenType.ECHO
-        elif result.lower() == 'if':
-            token_type = TokenType.IF
-        elif result.lower() == 'else':
-            token_type = TokenType.ELSE
-        elif result.lower() == 'elseif':
-            token_type = TokenType.ELSEIF
-        elif result.lower() == 'func':
-            token_type = TokenType.FUNC
-        elif result.lower() == 'return':
-            token_type = TokenType.RETURN
-        elif result.lower() == 'while':
-            token_type = TokenType.WHILE
-
-        return Token(token_type, result)
+        keywords = {
+            'cue': TokenType.CUE,
+            'echo': TokenType.ECHO,
+            'if': TokenType.IF,
+            'else': TokenType.ELSE,
+            'elseif': TokenType.ELSEIF,
+            'func': TokenType.FUNC,
+            'return': TokenType.RETURN,
+            'while': TokenType.WHILE,
+            'for': TokenType.FOR,
+            'break': TokenType.BREAK,
+            'continue': TokenType.CONTINUE,
+        }
+        
+        token_type = keywords.get(result.lower(), TokenType.IDENTIFIER)
+        return Token(token_type, result, line, column)
 
     def number(self):
         result = ''
+        line, column = self.line, self.column
         while self.current_char and self.current_char.isdigit():
             result += self.current_char
             self.advance()
@@ -104,8 +136,8 @@ class Lexer:
             while self.current_char and self.current_char.isdigit():
                 result += self.current_char
                 self.advance()
-            return Token(TokenType.NUMBER, float(result))
-        return Token(TokenType.NUMBER, int(result))
+            return Token(TokenType.NUMBER, float(result), line, column)
+        return Token(TokenType.NUMBER, int(result), line, column)
 
     def get_next_token(self):
         while self.current_char:
@@ -113,6 +145,7 @@ class Lexer:
                 self.skip_whitespace()
                 continue
 
+            # Handle ~~ comments
             if self.current_char == '~' and self.peek() == '~':
                 self.advance()
                 self.advance()
@@ -121,9 +154,13 @@ class Lexer:
                 else:
                     while self.current_char and (self.current_char != '~' or self.peek() != '~'):
                         self.advance()
-                    self.advance()
-                    self.advance()
+                    if self.current_char:
+                        self.advance()
+                    if self.current_char:
+                        self.advance()
                 continue
+
+            line, column = self.line, self.column
 
             if self.current_char == '"':
                 return self.string()
@@ -137,90 +174,91 @@ class Lexer:
             if self.current_char == '$':
                 return self.variable()
 
+            # Enhanced operator handling
             if self.current_char == '=':
                 if self.peek() == '=':
                     self.advance()
                     self.advance()
-                    return Token(TokenType.OPERATOR, '==')
+                    return Token(TokenType.OPERATOR, '==', line, column)
                 else:
                     self.advance()
-                    return Token(TokenType.ASSIGN, '=')
+                    return Token(TokenType.ASSIGN, '=', line, column)
 
             if self.current_char == '!':
                 if self.peek() == '=':
                     self.advance()
                     self.advance()
-                    return Token(TokenType.OPERATOR, '!=')
+                    return Token(TokenType.OPERATOR, '!=', line, column)
                 else:
                     self.advance()
-                    return Token(TokenType.OPERATOR, '!')
+                    return Token(TokenType.OPERATOR, '!', line, column)
 
             if self.current_char == '<':
                 if self.peek() == '=':
                     self.advance()
                     self.advance()
-                    return Token(TokenType.OPERATOR, '<=')
+                    return Token(TokenType.OPERATOR, '<=', line, column)
                 else:
                     self.advance()
-                    return Token(TokenType.OPERATOR, '<')
+                    return Token(TokenType.OPERATOR, '<', line, column)
 
             if self.current_char == '>':
                 if self.peek() == '=':
                     self.advance()
                     self.advance()
-                    return Token(TokenType.OPERATOR, '>=')
+                    return Token(TokenType.OPERATOR, '>=', line, column)
                 else:
                     self.advance()
-                    return Token(TokenType.OPERATOR, '>')
+                    return Token(TokenType.OPERATOR, '>', line, column)
 
-            if self.current_char == '{':
-                self.advance()
-                return Token(TokenType.LBRACE, '{')
+            # Handle && and ||
+            if self.current_char == '&':
+                if self.peek() == '&':
+                    self.advance()
+                    self.advance()
+                    return Token(TokenType.OPERATOR, '&&', line, column)
 
-            if self.current_char == '}':
-                self.advance()
-                return Token(TokenType.RBRACE, '}')
+            if self.current_char == '|':
+                if self.peek() == '|':
+                    self.advance()
+                    self.advance()
+                    return Token(TokenType.OPERATOR, '||', line, column)
 
-            if self.current_char == '(':
-                self.advance()
-                return Token(TokenType.LPAREN, '(')
+            # Single character tokens
+            single_char_tokens = {
+                '{': TokenType.LBRACE,
+                '}': TokenType.RBRACE,
+                '(': TokenType.LPAREN,
+                ')': TokenType.RPAREN,
+                ',': TokenType.COMMA,
+                ';': TokenType.SEMICOLON,
+                '+': TokenType.OPERATOR,
+                '-': TokenType.OPERATOR,
+                '*': TokenType.OPERATOR,
+                '/': TokenType.OPERATOR,
+                '%': TokenType.OPERATOR,
+            }
 
-            if self.current_char == ')':
+            if self.current_char in single_char_tokens:
+                char = self.current_char
+                token_type = single_char_tokens[char]
                 self.advance()
-                return Token(TokenType.RPAREN, ')')
-
-            if self.current_char == ',':
-                self.advance()
-                return Token(TokenType.COMMA, ',')
-
-            if self.current_char == ';':
-                self.advance()
-                return Token(TokenType.SEMICOLON, ';')
-    
-            if self.current_char in ['+', '-', '*', '/', '%']:
-                op = self.current_char
-                self.advance()
-                return Token(TokenType.OPERATOR, op)
+                if token_type == TokenType.OPERATOR:
+                    return Token(token_type, char, line, column)
+                else:
+                    return Token(token_type, char, line, column)
 
             self.error()
 
-        return Token(TokenType.EOF, None)
-
-
-
-    def boolean_expression(self):
-        left = self.term()
-        while self.current_token.type in (TokenType.OPERATOR):
-            op = self.current_token
-            self.eat(TokenType.OPERATOR)
-            right = self.term()
-            left = BinaryOperation(left, op, right)
-        return left
+        return Token(TokenType.EOF, None, self.line, self.column)
 
     def variable(self):
+        line, column = self.line, self.column
         self.advance()  # Move past $
         token = self.identifier_token()  # Treat $ as part of identifier
         token.type = TokenType.VARIABLE  # Change token type to VARIABLE
+        token.line = line
+        token.column = column
         return token
 
     def peek(self):
@@ -229,9 +267,10 @@ class Lexer:
         return None
 
     def error(self):
-        raise Exception(f"Invalid character: {self.current_char}")
+        raise Exception(f"Invalid character: '{self.current_char}' at line {self.line}, column {self.column}")
 
 
+# AST Node classes
 class AST:
     pass
 
@@ -252,14 +291,11 @@ class Input(AST):
     def __init__(self, prompt):
         self.prompt = prompt
 
-
 class If(AST):
     def __init__(self, condition, body, else_body=None):
         self.condition = condition
         self.body = body
         self.else_body = else_body
-         
-
 
 class FunctionDef(AST):
     def __init__(self, name, params, body):
@@ -272,17 +308,27 @@ class FunctionCall(AST):
         self.name = name
         self.args = args
         
-class WhileStatement:
+class WhileStatement(AST):
     def __init__(self, condition, body):
-        self.condition = condition  # Condition is an expression
-        self.body = body            # Body is a list of statements
-       
+        self.condition = condition
+        self.body = body
+
+class ForStatement(AST):
+    def __init__(self, init, condition, update, body):
+        self.init = init
+        self.condition = condition
+        self.update = update
+        self.body = body
+
+class BreakStatement(AST):
+    pass
+
+class ContinueStatement(AST):
+    pass
+
 class EchoStatement(AST):
     def __init__(self, expression):
         self.expression = expression
-
-    def __repr__(self):
-        return f"EchoStatement({self.expression})"
 
 class Return(AST):
     def __init__(self, value):
@@ -307,24 +353,56 @@ class Identifier(AST):
     def __init__(self, value):
         self.value = value
 
+# Exception classes for control flow
+class BreakException(Exception):
+    pass
+
+class ContinueException(Exception):
+    pass
+
+class ReturnException(Exception):
+    def __init__(self, value):
+        self.value = value
+
 class Parser:
     def __init__(self, lexer):
         self.lexer = lexer
         self.current_token = self.lexer.get_next_token()
 
     def eat(self, token_type):
-        #print(f"Eating token: {self.current_token}")  # Debug print
         if self.current_token.type == token_type:
             self.current_token = self.lexer.get_next_token()
         else:
-            self.error(f"Expected token type {token_type} but got {self.current_token.type}")
+            self.error(f"Expected token type {token_type} but got {self.current_token.type} at line {self.current_token.line}")
+
+    def peek(self):
+        # Save current state
+        saved_pos = self.lexer.pos
+        saved_char = self.lexer.current_char
+        saved_line = self.lexer.line
+        saved_column = self.lexer.column
+        
+        # Get next token
+        next_token = self.lexer.get_next_token()
+        
+        # Restore state
+        self.lexer.pos = saved_pos
+        self.lexer.current_char = saved_char
+        self.lexer.line = saved_line
+        self.lexer.column = saved_column
+        
+        return next_token.type
+
+    def error(self, message="Invalid syntax"):
+        raise Exception(f"{message} at line {self.current_token.line}")
+
     def identifier(self):
         token = self.current_token
         self.eat(TokenType.IDENTIFIER)
         return Identifier(token.value)
+
     def statement(self):
-        print(f"Parsing statement: {self.current_token}")
-        if self.current_token.type == TokenType.PRINT:
+        if self.current_token.type in [TokenType.PRINT, TokenType.ECHO]:
             return self.print_statement()
         elif self.current_token.type == TokenType.VARIABLE:
             return self.variable_statement()
@@ -332,46 +410,74 @@ class Parser:
             return self.cue_statement()
         elif self.current_token.type == TokenType.IF:
             return self.if_statement()
+        elif self.current_token.type == TokenType.FUNC:
+            return self.function_def()
         elif self.current_token.type == TokenType.IDENTIFIER and self.peek() == TokenType.LPAREN:
             return self.function_call()
-        elif self.current_token.type == TokenType.ECHO:
-            return self.echo_statement()
         elif self.current_token.type == TokenType.WHILE:
             return self.while_statement()
+        elif self.current_token.type == TokenType.FOR:
+            return self.for_statement()
+        elif self.current_token.type == TokenType.RETURN:
+            return self.return_statement()
+        elif self.current_token.type == TokenType.BREAK:
+            self.eat(TokenType.BREAK)
+            return BreakStatement()
+        elif self.current_token.type == TokenType.CONTINUE:
+            self.eat(TokenType.CONTINUE)
+            return ContinueStatement()
         else:
             self.error(f"Unexpected token: {self.current_token.type}")
-    
-    def error(self, message="Invalid syntax"):
-        raise Exception(message)
-        
+
     def while_statement(self):
-        print(f"Parsing 'while' statement")
-        self.eat(TokenType.WHILE)  # Consume 'while' token
-        self.eat(TokenType.LPAREN)  # Consume '(' token
+        self.eat(TokenType.WHILE)
+        self.eat(TokenType.LPAREN)
+        condition = self.expression()
+        self.eat(TokenType.RPAREN)
+        self.eat(TokenType.LBRACE)
         
-        condition = self.expression()  # Parse the loop condition
-        print(f"Condition parsed: {condition}")
-        self.eat(TokenType.RPAREN)  # Consume ')' token
-        self.eat(TokenType.LBRACE)  # Consume '{' token
-    
         body = []
         while self.current_token.type != TokenType.RBRACE:
-            print(f"Parsing statement in while body")
-            body.append(self.statement())  # Parse the statements within the loop
-    
-        self.eat(TokenType.RBRACE)  # Consume '}' token
-    
+            body.append(self.statement())
+            if self.current_token.type == TokenType.SEMICOLON:
+                self.eat(TokenType.SEMICOLON)
+        
+        self.eat(TokenType.RBRACE)
         return WhileStatement(condition, body)
 
-    def block(self):
-        self.eat(TokenType.LBRACE)  # Consume '{' token
-        statements = []
+    def for_statement(self):
+        self.eat(TokenType.FOR)
+        self.eat(TokenType.LPAREN)
+        
+        # Initialization
+        init = None
+        if self.current_token.type != TokenType.SEMICOLON:
+            init = self.statement()
+        self.eat(TokenType.SEMICOLON)
+        
+        # Condition
+        condition = None
+        if self.current_token.type != TokenType.SEMICOLON:
+            condition = self.expression()
+        self.eat(TokenType.SEMICOLON)
+        
+        # Update
+        update = None
+        if self.current_token.type != TokenType.RPAREN:
+            update = self.expression()  # Simple expression for update
+        self.eat(TokenType.RPAREN)
+        
+        # Body
+        self.eat(TokenType.LBRACE)
+        body = []
         while self.current_token.type != TokenType.RBRACE:
-            statements.append(self.statement())  # Parse statements inside the block
-        self.eat(TokenType.RBRACE)  # Consume '}' token
-        return statements
+            body.append(self.statement())
+            if self.current_token.type == TokenType.SEMICOLON:
+                self.eat(TokenType.SEMICOLON)
+        self.eat(TokenType.RBRACE)
+        
+        return ForStatement(init, condition, update, body)
 
-    
     def function_def(self):
         self.eat(TokenType.FUNC)
         func_name = self.current_token.value
@@ -380,11 +486,12 @@ class Parser:
     
         params = []
         if self.current_token.type == TokenType.IDENTIFIER:
-            while self.current_token.type == TokenType.IDENTIFIER:
+            params.append(self.current_token.value)
+            self.eat(TokenType.IDENTIFIER)
+            while self.current_token.type == TokenType.COMMA:
+                self.eat(TokenType.COMMA)
                 params.append(self.current_token.value)
                 self.eat(TokenType.IDENTIFIER)
-                if self.current_token.type == TokenType.COMMA:
-                    self.eat(TokenType.COMMA)
 
         self.eat(TokenType.RPAREN)
         self.eat(TokenType.LBRACE)
@@ -392,37 +499,18 @@ class Parser:
         body = []
         while self.current_token.type != TokenType.RBRACE:
             body.append(self.statement())
-            
-        self.eat(TokenType.RBRACE)
-    
-        return FunctionDef(func_name, params, body)
-
-    def function_body(self):
-        statements = []
-        while self.current_token.type != TokenType.RBRACE:
-            if self.current_token.type == TokenType.RETURN:
-                statements.append(self.return_statement())
-            else:
-                statements.append(self.statement())
             if self.current_token.type == TokenType.SEMICOLON:
                 self.eat(TokenType.SEMICOLON)
-        return statements
+            
+        self.eat(TokenType.RBRACE)
+        return FunctionDef(func_name, params, body)
 
     def return_statement(self):
         self.eat(TokenType.RETURN)
-        value = self.expression()
+        value = None
+        if self.current_token.type not in [TokenType.SEMICOLON, TokenType.RBRACE, TokenType.EOF]:
+            value = self.expression()
         return Return(value)
-
-    def parameter_list(self):
-        params = []
-        if self.current_token.type == TokenType.IDENTIFIER:
-            params.append(self.current_token.value)
-            self.eat(TokenType.IDENTIFIER)
-            while self.current_token.type == TokenType.COMMA:
-                self.eat(TokenType.COMMA)
-                params.append(self.current_token.value)
-                self.eat(TokenType.IDENTIFIER)
-        return params
 
     def function_call(self):
         func_name = self.current_token.value
@@ -431,27 +519,14 @@ class Parser:
     
         args = []
         if self.current_token.type != TokenType.RPAREN:
-            while self.current_token.type != TokenType.RPAREN:
-                args.append(self.expression())
-                if self.current_token.type == TokenType.COMMA:
-                    self.eat(TokenType.COMMA)
-
-        self.eat(TokenType.RPAREN)
-    
-        return FunctionCall(func_name, args)
-
-
-    def argument_list(self):
-        args = []
-        if self.current_token.type in [TokenType.NUMBER, TokenType.STRING, TokenType.IDENTIFIER]:
             args.append(self.expression())
             while self.current_token.type == TokenType.COMMA:
                 self.eat(TokenType.COMMA)
                 args.append(self.expression())
-        return args
-  
 
-        
+        self.eat(TokenType.RPAREN)
+        return FunctionCall(func_name, args)
+
     def print_statement(self):
         if self.current_token.type == TokenType.ECHO:
             self.eat(TokenType.ECHO)
@@ -464,42 +539,16 @@ class Parser:
         self.eat(TokenType.CUE)
         prompt = self.expression()
         return Input(prompt)
-        
-    def echo_statement(self):
-        self.eat(TokenType.ECHO)
-        expr = self.expression()  # Make sure you have a method to parse expressions
-        # self.eat(TokenType.SEMICOLON)
-        return EchoStatement(expr)
-        
+
     def program(self):
         node = Program()
-        while self.current_token.type != TokenType.EOF:
-            if self.current_token.type == TokenType.RBRACE:
-                break
-
-            if self.current_token.type in [TokenType.PRINT, TokenType.ECHO]:
-                node.statements.append(self.print_statement())
-            elif self.current_token.type == TokenType.VARIABLE:
-                node.statements.append(self.variable_statement())
-            elif self.current_token.type == TokenType.CUE:
-                node.statements.append(self.cue_statement())  
-            elif self.current_token.type == TokenType.IF:
-                node.statements.append(self.if_statement())
-            elif self.current_token.type == TokenType.FUNC:
-                node.statements.append(self.function_def())
-            elif self.current_token.type == TokenType.IDENTIFIER and self.peek() == TokenType.LPAREN:
-                node.statements.append(self.function_call())
-            elif self.current_token.type == TokenType.WHILE:
-                node.statements.append(self.while_statement())
-            else:
-                self.error(f"Unexpected token: {self.current_token.type}")
-
+        while self.current_token.type != TokenType.EOF and self.current_token.type != TokenType.RBRACE:
+            node.statements.append(self.statement())
+            
             if self.current_token.type == TokenType.SEMICOLON:
                 self.eat(TokenType.SEMICOLON)
-            elif self.current_token.type == TokenType.EOF or self.current_token.type == TokenType.RBRACE:
+            elif self.current_token.type in [TokenType.EOF, TokenType.RBRACE]:
                 break
-            else:
-                self.error(f"Expected ';' or EOF but got {self.current_token.type}")
 
         return node
 
@@ -511,12 +560,6 @@ class Parser:
         value = self.expression()
         return Variable(name, value)
 
-    def input_statement(self):
-        self.eat(TokenType.INPUT)
-        prompt = self.expression()
-        return Input(prompt)
-
-        
     def if_statement(self):
         self.eat(TokenType.IF)
         condition = self.expression()
@@ -555,11 +598,11 @@ class Parser:
         return If(condition, body, else_body)
 
     def expression(self):
-        return self.boolean_expression()
+        return self.or_expression()
 
-    def boolean_expression(self):
+    def or_expression(self):
         expr = self.and_expression()
-        while self.current_token.type == TokenType.OPERATOR and self.current_token.value in ['==', '!=']:
+        while self.current_token.type == TokenType.OPERATOR and self.current_token.value == '||':
             op = self.current_token.value
             self.eat(TokenType.OPERATOR)
             right = self.and_expression()
@@ -567,8 +610,26 @@ class Parser:
         return expr
 
     def and_expression(self):
-        expr = self.term()
+        expr = self.equality_expression()
         while self.current_token.type == TokenType.OPERATOR and self.current_token.value == '&&':
+            op = self.current_token.value
+            self.eat(TokenType.OPERATOR)
+            right = self.equality_expression()
+            expr = BinaryOp(expr, op, right)
+        return expr
+
+    def equality_expression(self):
+        expr = self.comparison_expression()
+        while self.current_token.type == TokenType.OPERATOR and self.current_token.value in ['==', '!=']:
+            op = self.current_token.value
+            self.eat(TokenType.OPERATOR)
+            right = self.comparison_expression()
+            expr = BinaryOp(expr, op, right)
+        return expr
+
+    def comparison_expression(self):
+        expr = self.term()
+        while self.current_token.type == TokenType.OPERATOR and self.current_token.value in ['<', '>', '<=', '>=']:
             op = self.current_token.value
             self.eat(TokenType.OPERATOR)
             right = self.term()
@@ -585,7 +646,6 @@ class Parser:
         return expr
 
     def factor(self):
-        # Modify this method to call self.identifier() instead of creating Identifier node directly
         if self.current_token.type == TokenType.NUMBER:
             node = Literal(self.current_token.value)
             self.eat(TokenType.NUMBER)
@@ -595,9 +655,12 @@ class Parser:
             self.eat(TokenType.STRING)
             return node
         elif self.current_token.type == TokenType.IDENTIFIER:
-            return self.identifier()  # Updated to call self.identifier()
+            if self.peek() == TokenType.LPAREN:
+                return self.function_call()
+            else:
+                return self.identifier()
         elif self.current_token.type == TokenType.CUE:
-            return self.cue_statement()  # Handle CUE statement here
+            return self.cue_statement()
         elif self.current_token.type == TokenType.OPERATOR and self.current_token.value in ['!', '-']:
             op = self.current_token.value
             self.eat(TokenType.OPERATOR)
@@ -615,18 +678,22 @@ class Parser:
         return self.program()
 
 class SymbolTable:
-    def __init__(self):
+    def __init__(self, parent=None):
         self.symbols = {}
+        self.parent = parent
 
     def set(self, name, value):
         self.symbols[name] = value
 
     def get(self, name):
-        return self.symbols.get(name, None)
+        if name in self.symbols:
+            return self.symbols[name]
+        elif self.parent:
+            return self.parent.get(name)
+        return None
 
     def __str__(self):
         return f"SymbolTable({self.symbols})"
-
 
 class Interpreter:
     def __init__(self, parser):
@@ -634,24 +701,36 @@ class Interpreter:
         self.symbol_table = SymbolTable()
 
     def visit_program(self, program_node):
+        result = None
         for statement in program_node.statements:
-            self.visit(statement)
+            result = self.visit(statement)
+        return result
+
     def visit_input(self, input_node):
         prompt_value = self.visit(input_node.prompt)
-        user_input = input(prompt_value + " ")  # Prompt user for input
-        return user_input
+        user_input = input(str(prompt_value) + " ")
+        # Try to convert to number if possible
+        try:
+            if '.' in user_input:
+                return float(user_input)
+            else:
+                return int(user_input)
+        except ValueError:
+            return user_input
 
     def visit_print(self, print_node):
         value = self.visit(print_node.expr)
         print(value)
-        
 
     def visit_variable(self, variable_node):
         value = self.visit(variable_node.value)
         self.symbol_table.set(variable_node.name, value)
 
     def visit_identifier(self, identifier_node):
-            return self.symbol_table.get(identifier_node.value)
+        value = self.symbol_table.get(identifier_node.value)
+        if value is None:
+            raise Exception(f"Undefined variable: {identifier_node.value}")
+        return value
 
     def visit_literal(self, literal_node):
         return literal_node.value
@@ -664,11 +743,15 @@ class Interpreter:
         if func is None:
             raise Exception(f"Function {functioncall_node.name} not defined")
 
-        # Check parameter count and match arguments
+        if not isinstance(func, FunctionDef):
+            raise Exception(f"{functioncall_node.name} is not a function")
+
+        # Check parameter count
         if len(func.params) != len(functioncall_node.args):
-            raise Exception("Argument count mismatch")
+            raise Exception(f"Function {functioncall_node.name} expects {len(func.params)} arguments, got {len(functioncall_node.args)}")
         
-        local_symbols = SymbolTable()
+        # Create new scope
+        local_symbols = SymbolTable(self.symbol_table)
         for param, arg in zip(func.params, functioncall_node.args):
             local_symbols.set(param, self.visit(arg))
         
@@ -676,28 +759,72 @@ class Interpreter:
         old_symbol_table = self.symbol_table
         self.symbol_table = local_symbols
         result = None
-        for statement in func.body:
-            result = self.visit(statement)
-            if isinstance(statement, Return):
-                result = self.visit(statement.value)
-                break
         
-        self.symbol_table = old_symbol_table
+        try:
+            for statement in func.body:
+                result = self.visit(statement)
+        except ReturnException as ret:
+            result = ret.value
+        finally:
+            self.symbol_table = old_symbol_table
+        
         return result
+
+    def visit_whilestatement(self, while_node):
+        try:
+            while self.visit(while_node.condition):
+                try:
+                    for statement in while_node.body:
+                        self.visit(statement)
+                except ContinueException:
+                    continue
+                except BreakException:
+                    break
+        except BreakException:
+            pass
+
+    def visit_forstatement(self, for_node):
+        # Execute initialization
+        if for_node.init:
+            self.visit(for_node.init)
         
-    def execute(self, statement):
-        if isinstance(statement, WhileStatement):
-            while self.evaluate(statement.condition):  # Evaluate the loop condition
-                for stmt in statement.body:
-                    self.execute(stmt)  # Execute each statement in the loop body
-        # Handle other statement types
+        try:
+            while True:
+                # Check condition
+                if for_node.condition and not self.visit(for_node.condition):
+                    break
+                
+                try:
+                    # Execute body
+                    for statement in for_node.body:
+                        self.visit(statement)
+                except ContinueException:
+                    pass
+                except BreakException:
+                    break
+                
+                # Execute update
+                if for_node.update:
+                    self.visit(for_node.update)
+        except BreakException:
+            pass
+
+    def visit_breakstatement(self, break_node):
+        raise BreakException()
+
+    def visit_continuestatement(self, continue_node):
+        raise ContinueException()
 
     def visit_return(self, return_node):
-        return self.visit(return_node.value)
+        value = None
+        if return_node.value:
+            value = self.visit(return_node.value)
+        raise ReturnException(value)
         
     def visit_binaryop(self, binaryop_node):
         left = self.visit(binaryop_node.left)
         right = self.visit(binaryop_node.right)
+        
         if binaryop_node.op == '+':
             return left + right
         elif binaryop_node.op == '-':
@@ -705,6 +832,8 @@ class Interpreter:
         elif binaryop_node.op == '*':
             return left * right
         elif binaryop_node.op == '/':
+            if right == 0:
+                raise Exception("Division by zero")
             return left / right
         elif binaryop_node.op == '%':
             return left % right
@@ -712,6 +841,18 @@ class Interpreter:
             return left == right
         elif binaryop_node.op == '!=':
             return left != right
+        elif binaryop_node.op == '<':
+            return left < right
+        elif binaryop_node.op == '>':
+            return left > right
+        elif binaryop_node.op == '<=':
+            return left <= right
+        elif binaryop_node.op == '>=':
+            return left >= right
+        elif binaryop_node.op == '&&':
+            return left and right
+        elif binaryop_node.op == '||':
+            return left or right
         else:
             raise Exception(f"Unknown operator {binaryop_node.op}")
 
@@ -728,8 +869,14 @@ class Interpreter:
         if self.visit(if_node.condition):
             self.visit_program(if_node.body)
         elif if_node.else_body:
-            self.visit(if_node.else_body)
+            if isinstance(if_node.else_body, If):
+                self.visit(if_node.else_body)
+            else:
+                self.visit_program(if_node.else_body)
 
+    def visit_echostatement(self, echo_node):
+        value = self.visit(echo_node.expression)
+        print(value)
 
     def visit(self, node):
         method_name = f"visit_{type(node).__name__.lower()}"
@@ -737,20 +884,21 @@ class Interpreter:
         return visitor(node)
 
     def generic_visit(self, node):
-        raise Exception(f"No visit_{type(node).__name__.lower()} method defined")
-        
-
+        raise Exception(f"No visit_{type(node).__name__.lower()} method defined for {type(node).__name__}")
 
 def run(source):
-    lexer = Lexer(source)
-    parser = Parser(lexer)
-    interpreter = Interpreter(parser)
-    program = parser.program()
-    interpreter.visit_program(program)
+    try:
+        lexer = Lexer(source)
+        parser = Parser(lexer)
+        program = parser.parse()
+        interpreter = Interpreter(parser)
+        interpreter.visit_program(program)
+    except Exception as e:
+        print(f"Error: {e}")
 
 def main():
     if len(sys.argv) != 2:
-        print("Usage: tuelang <filename.tuelang>")
+        print("Usage: python tuelang.py <filename.tuelang>")
         return
 
     filename = sys.argv[1]
